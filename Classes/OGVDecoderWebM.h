@@ -7,5 +7,6 @@
 //
 
 @interface OGVDecoderWebM : OGVDecoder
+@property (nonatomic) double videobufTime;
 
 @end

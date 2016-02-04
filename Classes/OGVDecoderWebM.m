@@ -38,7 +38,7 @@ static int readCallback(void * buffer, size_t length, void *userdata)
     OGVDecoderWebM *decoder = (__bridge OGVDecoderWebM *)userdata;
     OGVInputStream *stream = decoder.inputStream;
     NSData *data = [stream readBytes:length blocking:YES];
-
+    
     if (stream.state == OGVInputStreamStateFailed) {
         return 0;
     } else if ([data length] < length) {
@@ -101,7 +101,7 @@ static int64_t tellCallback(void * userdata)
     unsigned int    audioPacketCount;
     OGVQueue       *audioPackets;
     
-
+    
 #ifdef OGVKIT_HAVE_VP8_DECODER
     vpx_codec_ctx_t    vpxContext;
     vpx_codec_iface_t *vpxDecoder;
@@ -109,13 +109,12 @@ static int64_t tellCallback(void * userdata)
     
     /* single frame video buffering */
     int64_t           videobufGranulepos;  // @todo reset with TH_CTL_whatver on seek
-    double            videobufTime;         // time seen on actual decoded frame
     int64_t           keyframeGranulepos;  //
     double            keyframeTime;        // last-keyframe time seen on actual decoded frame
     
     int64_t           audiobufGranulepos; /* time position of last sample */
     double            audiobufTime;
-
+    
 #ifdef OGVKIT_HAVE_VORBIS_DECODER
     /* Audio decode state */
     int               vorbisHeaders;
@@ -125,10 +124,10 @@ static int64_t tellCallback(void * userdata)
     vorbis_block      vorbisBlock;
     vorbis_comment    vorbisComment;
 #endif
-
+    
     OGVAudioBuffer *queuedAudio;
     OGVVideoBuffer *queuedFrame;
-
+    
     enum AppState {
         STATE_BEGIN,
         STATE_DECODING
@@ -146,7 +145,7 @@ static int64_t tellCallback(void * userdata)
         videoPackets = [[OGVQueue alloc] init];
         audioCodec = -1;
         audioPackets = [[OGVQueue alloc] init];
-
+        
         ioCallbacks.read = readCallback;
         ioCallbacks.seek = seekCallback;
         ioCallbacks.tell = tellCallback;
@@ -213,7 +212,7 @@ static int64_t tellCallback(void * userdata)
                 vpxDecoder = vpx_codec_vp9_dx();
             }
             vpx_codec_dec_init(&vpxContext, vpxDecoder, NULL, 0);
-
+            
             self.videoFormat = [[OGVVideoFormat alloc] init];
             self.videoFormat.frameWidth = videoParams.width;
             self.videoFormat.frameHeight = videoParams.height;
@@ -236,7 +235,7 @@ static int64_t tellCallback(void * userdata)
             if (audioCodec == NESTEGG_CODEC_VORBIS) {
                 unsigned int codecDataCount;
                 nestegg_track_codec_data_count(demuxContext, audioTrack, &codecDataCount);
-
+                
                 for (unsigned int i = 0; i < codecDataCount; i++) {
                     unsigned char *data;
                     size_t len;
@@ -252,7 +251,7 @@ static int64_t tellCallback(void * userdata)
                     audioPacket.e_o_s = 0;
                     audioPacket.granulepos = 0;
                     audioPacket.packetno = i;
-
+                    
                     ret = vorbis_synthesis_headerin(&vorbisInfo, &vorbisComment, &audioPacket);
                     if (ret == 0) {
                         vorbisHeaders++;
@@ -267,20 +266,20 @@ static int64_t tellCallback(void * userdata)
     }
     
 #ifdef OGVKIT_HAVE_VORBIS_DECODER
-	if (vorbisHeaders) {
-		vorbis_synthesis_init(&vorbisDspState, &vorbisInfo);
-		vorbis_block_init(&vorbisDspState, &vorbisBlock);
-		
+    if (vorbisHeaders) {
+        vorbis_synthesis_init(&vorbisDspState, &vorbisInfo);
+        vorbis_block_init(&vorbisDspState, &vorbisBlock);
+        
         self.audioFormat = [[OGVAudioFormat alloc] initWithChannels:vorbisInfo.channels
                                                          sampleRate:vorbisInfo.rate];
-	}
+    }
 #endif
-
+    
     appState = STATE_DECODING;
     self.dataReady = YES;
     self.hasAudio = hasAudio;
     self.hasVideo = hasVideo;
-
+    
     return YES;
 }
 
@@ -291,11 +290,11 @@ static int64_t tellCallback(void * userdata)
     if (self.hasVideo && !self.frameReady) {
         needData = YES;
     }
-
+    
     if (self.hasAudio && !self.audioReady) {
         needData = YES;
     }
-
+    
     if (needData) {
         // Do the nestegg_read_packet dance until it fails to read more data,
         // at which point we ask for more. Hope it doesn't explode.
@@ -306,10 +305,10 @@ static int64_t tellCallback(void * userdata)
             return NO;
         } else if (ret > 0) {
             OGVDecoderWebMPacket *packet = [[OGVDecoderWebMPacket alloc] initWithNesteggPacket:nepacket];
-
+            
             unsigned int track;
             nestegg_packet_track(packet.nesteggPacket, &track);
-
+            
             if (self.hasVideo && track == videoTrack) {
                 [videoPackets queue:packet];
             } else if (self.hasAudio && track == audioTrack) {
@@ -329,14 +328,14 @@ static int64_t tellCallback(void * userdata)
     
     if (packet) {
         unsigned int chunks = packet.count;
-
-        videobufTime = packet.timestamp;
-
+        
+        _videobufTime = packet.timestamp;
+        
 #ifdef OGVKIT_HAVE_VP8_DECODER
         // uh, can this happen? curiouser :D
         for (unsigned int chunk = 0; chunk < chunks; ++chunk) {
             NSData *data = [packet dataAtIndex:chunk];
-
+            
             vpx_codec_decode(&vpxContext, data.bytes, (unsigned int)[data length], NULL, 1);
             // @todo check return value
         }
@@ -354,7 +353,7 @@ static int64_t tellCallback(void * userdata)
                 continue;
             }
             foundImage = true;
-
+            
             // In VP8/VP9 the frame size can vary! Update as necessary.
             // vpx_image is pre-cropped; use only the display size
             OGVVideoFormat *format = [self.videoFormat copy];
@@ -362,32 +361,32 @@ static int64_t tellCallback(void * userdata)
             format.frameHeight = image->d_h;
             format.pictureWidth = image->d_w;
             format.pictureHeight = image->d_h;
-
+            
             OGVVideoPlane *Y = [[OGVVideoPlane alloc] initWithBytes:image->planes[0]
                                                              stride:image->stride[0]
                                                               lines:format.lumaHeight];
-
+            
             OGVVideoPlane *Cb = [[OGVVideoPlane alloc] initWithBytes:image->planes[1]
                                                               stride:image->stride[1]
                                                                lines:format.chromaHeight];
-
+            
             OGVVideoPlane *Cr = [[OGVVideoPlane alloc] initWithBytes:image->planes[2]
                                                               stride:image->stride[2]
                                                                lines:format.chromaHeight];
-
+            
             OGVVideoBuffer *buffer = [[OGVVideoBuffer alloc] initWithFormat:format
                                                                           Y:Y
                                                                          Cb:Cb
                                                                          Cr:Cr
-                                                                  timestamp:videobufTime];
-
+                                                                  timestamp:_videobufTime];
+            
             queuedFrame = buffer;
         }
 #endif
         
         return YES;
     }
-
+    
     return NO;
 }
 
@@ -396,14 +395,14 @@ static int64_t tellCallback(void * userdata)
     BOOL foundSome = NO;
     
     OGVDecoderWebMPacket *packet = [audioPackets dequeue];
-
+    
     if (packet) {
-
+        
 #ifdef OGVKIT_HAVE_VORBIS_DECODER
         if (audioCodec == NESTEGG_CODEC_VORBIS) {
             ogg_packet audioPacket;
             [packet synthesizeOggPacket:&audioPacket];
-
+            
             int ret = vorbis_synthesis(&vorbisBlock, &audioPacket);
             if (ret == 0) {
                 vorbis_synthesis_blockin(&vorbisDspState, &vorbisBlock);
@@ -429,7 +428,7 @@ static int64_t tellCallback(void * userdata)
         }
 #endif
     }
-
+    
     return foundSome;
 }
 
@@ -494,7 +493,7 @@ static int64_t tellCallback(void * userdata)
     if (self.hasAudio) {
         queuedAudio = nil;
         [audioPackets flush];
-
+        
 #ifdef OGVKIT_HAVE_VORBIS_DECODER
         if (audioCodec == NESTEGG_CODEC_VORBIS) {
             vorbis_synthesis_restart(&vorbisDspState);
@@ -556,9 +555,9 @@ static int64_t tellCallback(void * userdata)
 -(BOOL)seekable
 {
     return self.dataReady &&
-        self.inputStream.seekable &&
-        demuxContext &&
-        nestegg_has_cues(demuxContext);
+    self.inputStream.seekable &&
+    demuxContext &&
+    nestegg_has_cues(demuxContext);
 }
 
 -(float)duration
@@ -577,10 +576,10 @@ static int64_t tellCallback(void * userdata)
 + (BOOL)canPlayType:(OGVMediaType *)mediaType
 {
     if ([mediaType.minor isEqualToString:@"webm"] &&
-         ([mediaType.major isEqualToString:@"audio"] ||
-          [mediaType.major isEqualToString:@"video"])
+        ([mediaType.major isEqualToString:@"audio"] ||
+         [mediaType.major isEqualToString:@"video"])
         ) {
-
+        
         if (mediaType.codecs) {
             int knownCodecs = 0;
             int unknownCodecs = 0;

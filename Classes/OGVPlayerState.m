@@ -8,15 +8,16 @@
 //
 
 #import "OGVKit.h"
+#import "OGVDecoderWebM.h"
 
 @implementation OGVPlayerState
 {
     __weak id<OGVPlayerStateDelegate> delegate;
-
+    
     OGVInputStream *stream;
     OGVAudioFeeder *audioFeeder;
     OGVDecoder *decoder;
-
+    
     float frameEndTimestamp;
     float initialAudioTimestamp;
     
@@ -36,18 +37,18 @@
     self = [super init];
     if (self) {
         delegate = aDelegate;
-
+        
         // decode on background thread
         decodeQueue = dispatch_queue_create("OGVKit.Decoder", NULL);
-
+        
         // draw on UI thread
         drawingQueue = dispatch_get_main_queue();
-
+        
         stream = [[OGVInputStream alloc] initWithURL:URL];
-
+        
         playing = NO;
         playAfterLoad = NO;
-
+        
         // Start loading the URL and processing header data
         dispatch_async(decodeQueue, ^() {
             // @todo set our own state to connecting!
@@ -77,7 +78,7 @@
         if (audioFeeder) {
             [self stopAudio];
         }
-
+        
         if (playing) {
             playing = NO;
             dispatch_async(drawingQueue, ^() {
@@ -92,7 +93,7 @@
 -(void)cancel
 {
     [self pause];
-
+    
     dispatch_async(decodeQueue, ^() {
         if (stream) {
             [stream cancel];
@@ -119,22 +120,22 @@
                 // Save our approximate time...
                 frameEndTimestamp = time;
                 initialAudioTimestamp = time;
-
+                
                 BOOL ok = [decoder seek:time];
-
+                
                 if (ok) {
                     // Find out the actual time we seeked to!
                     // We may have gone to a keyframe nearby.
                     [self syncAfterSeek];
                     frameEndTimestamp = decoder.frameTimestamp;
                     initialAudioTimestamp = decoder.audioTimestamp;
-
+                    
                     dispatch_async(drawingQueue, ^() {
                         if ([delegate respondsToSelector:@selector(ogvPlayerStateDidSeek:)]) {
                             [delegate ogvPlayerStateDidSeek:self];
                         }
                     });
-
+                    
                     if (wasPlaying) {
                         [self play];
                     }
@@ -156,7 +157,12 @@
 {
     // @todo use alternate clock provider for video-only files
     if (playing) {
-        return audioFeeder.playbackPosition + initialAudioTimestamp;
+        if([decoder isKindOfClass:[OGVDecoderWebM class]]) {
+            return ((OGVDecoderWebM*)decoder).videobufTime + initialAudioTimestamp;
+        }
+        else{
+            return decoder.frameTimestamp + initialAudioTimestamp;
+        }
     } else {
         return initialAudioTimestamp;
     }
@@ -203,7 +209,7 @@
         [self startAudio];
     }
     [self initPlaybackState];
-
+    
     dispatch_async(drawingQueue, ^() {
         if ([delegate respondsToSelector:@selector(ogvPlayerStateDidPlay:)]) {
             [delegate ogvPlayerStateDidPlay:self];
@@ -280,7 +286,7 @@
                 [self pause];
                 return;
             }
-
+            
             // Wait for audio to run out, then close up shop!
             float timeLeft;
             if (audioFeeder) {
@@ -288,10 +294,11 @@
             } else {
                 timeLeft = 0;
             }
-
+            
             dispatch_time_t closeTime = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeLeft * NSEC_PER_SEC));
             dispatch_after(closeTime, drawingQueue, ^{
-                [self cancel];
+                [self pause];
+                [self seek:0];
                 if ([delegate respondsToSelector:@selector(ogvPlayerStateDidPause:)]) {
                     [delegate ogvPlayerStateDidPause:self];
                 }
@@ -299,10 +306,10 @@
                     [delegate ogvPlayerStateDidEnd:self];
                 }
             });
-
+            
             return;
         }
-
+        
         if (decoder.hasAudio) {
             // Drive on the audio clock!
             const float fudgeDelta = 0.001f;
@@ -375,7 +382,7 @@
             // Drive on the video clock
             // @fixme replace this with the audio code-path using an alternate clock provider?
             BOOL readyForFrame = YES; // check time?
-
+            
             if (readyForFrame && decoder.frameReady) {
                 // it's time to draw
                 BOOL ok = [decoder decodeFrame];
@@ -432,7 +439,7 @@
             break;
         }
     }
-
+    
     if (decoder.hasVideo) {
         // Show where we left off
         BOOL ok = [decoder decodeFrame];
@@ -454,24 +461,24 @@
         case OGVInputStreamStateConnecting:
             // Good... Good. Let the data flow through you!
             break;
-
+            
         case OGVInputStreamStateReading:
             // Break the stream off from us and send it to the decoder.
             stream.delegate = nil;
             [self startDecoder];
             break;
-
+            
         case OGVInputStreamStateFailed:
             NSLog(@"Stream file failed.");
             stream.delegate = nil;
             [stream cancel];
             stream = nil;
             break;
-
+            
         case OGVInputStreamStateCanceled:
             // we canceled it, eh
             break;
-
+            
         default:
             NSLog(@"Unexpected stream state change! %d", (int)stream.state);
             stream.delegate = nil;
